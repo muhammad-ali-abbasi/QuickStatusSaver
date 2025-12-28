@@ -6,15 +6,15 @@ plugins {
 }
 
 android {
-    namespace = "com.example.quickstatussaver"
+    namespace = "com.techseedrive.quickstatussaver"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.quickstatussaver"
+        applicationId = "com.techseedrive.quickstatussaver"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,6 +24,14 @@ android {
 
     buildTypes {
         release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
