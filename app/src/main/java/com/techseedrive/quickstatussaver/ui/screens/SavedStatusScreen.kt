@@ -3,6 +3,7 @@ package com.techseedrive.quickstatussaver.ui.screens
 import android.annotation.SuppressLint
 import android.content.ContentUris
 import android.content.Context
+import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -40,35 +42,43 @@ private object SavedMediaCache {
     fun setPreloaded() {
         isPreloaded = true
     }
+    fun clear() {
+        cachedData = null
+        isPreloaded = false
+    }
 }
 
 @Composable
 fun SavedStatusScreen(navController: NavHostController) {
     val context = LocalContext.current
 
-    // Check cache first for instant display
-    val initialData = remember { SavedMediaCache.get() }
-    val mediaList = remember { mutableStateListOf<StatusMedia>().apply {
-        initialData?.let { addAll(it) }
-    }}
-    var hasLoaded by remember { mutableStateOf(initialData != null) }
+    // Add refresh trigger
+    var refreshTrigger by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        if (hasLoaded) return@LaunchedEffect // Already have cached data
+    val mediaList = remember { mutableStateListOf<StatusMedia>() }
+    var hasLoaded by remember { mutableStateOf(false) }
 
-        // Load on IO dispatcher
+    // Clear cache when screen is first entered to ensure fresh data
+    DisposableEffect(Unit) {
+        // Clear cache on screen entry to get fresh data after saves from other screens
+        SavedMediaCache.clear()
+        onDispose { }
+    }
+
+    LaunchedEffect(refreshTrigger) {
+        // Always reload from MediaStore to get latest saved files
         withContext(Dispatchers.IO) {
             val loaded = getSavedMedia(context)
 
             withContext(Dispatchers.Main) {
                 mediaList.clear()
                 mediaList.addAll(loaded)
-                SavedMediaCache.put(loaded) // Cache for next time
+                SavedMediaCache.put(loaded)
                 hasLoaded = true
             }
 
             // Preload thumbnails in background
-            if (!SavedMediaCache.isPreloaded()) {
+            if (!SavedMediaCache.isPreloaded() || refreshTrigger > 0) {
                 ThumbnailPreloader.preload(context, loaded)
                 withContext(Dispatchers.Main) {
                     SavedMediaCache.setPreloaded()
@@ -84,8 +94,11 @@ fun SavedStatusScreen(navController: NavHostController) {
             fromSavedStatus = true,
             navController = navController,
             deleteItem = { media ->
+                // Remove from UI immediately
                 mediaList.remove(media)
-                SavedMediaCache.put(mediaList.toList()) // Update cache
+                // Clear cache and trigger refresh
+                SavedMediaCache.clear()
+                refreshTrigger++
             }
         )
     } else {
@@ -99,51 +112,63 @@ fun SavedStatusScreen(navController: NavHostController) {
 @SuppressLint("InlinedApi")
 fun getSavedMedia(context: Context): List<StatusMedia> {
     val mediaList = mutableListOf<StatusMedia>()
-    val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+    // Query both Pictures and Movies folders for QuickStatusSaver files
+    val collections: List<Uri> = listOf(
+        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+        MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    )
 
     val projection = arrayOf(
-        MediaStore.Files.FileColumns._ID,
-        MediaStore.Files.FileColumns.DISPLAY_NAME,
-        MediaStore.Files.FileColumns.MIME_TYPE,
-        MediaStore.Files.FileColumns.DATE_MODIFIED
+        MediaStore.MediaColumns._ID,
+        MediaStore.MediaColumns.DISPLAY_NAME,
+        MediaStore.MediaColumns.MIME_TYPE,
+        MediaStore.MediaColumns.DATE_MODIFIED,
+        MediaStore.MediaColumns.RELATIVE_PATH
     )
 
-    val selection = "${MediaStore.Files.FileColumns.RELATIVE_PATH} LIKE ?"
-    val selectionArgs = arrayOf("Download/QuickStatusSaver/%")
-
-    val cursor = context.contentResolver.query(
-        collection,
-        projection,
-        selection,
-        selectionArgs,
-        "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
+    val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? OR ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+    val selectionArgs = arrayOf(
+        "%Pictures/QuickStatusSaver%",
+        "%Movies/QuickStatusSaver%"
     )
 
-    cursor?.use {
-        val idColumn = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-        val nameColumn = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
-        val mimeTypeColumn = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-        val dateModifiedColumn = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+    for (collection in collections) {
+        val cursor = context.contentResolver.query(
+            collection,
+            projection,
+            selection,
+            selectionArgs,
+            "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
+        )
 
-        while (it.moveToNext()) {
-            val id = it.getLong(idColumn)
-            val displayName = it.getString(nameColumn)
-            val mimeType = it.getString(mimeTypeColumn) ?: ""
-            val lastModified = it.getLong(dateModifiedColumn) * 1000  // Convert to milliseconds
+        cursor?.use {
+            val idColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            val nameColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            val mimeTypeColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+            val dateModifiedColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
 
-            val contentUri = ContentUris.withAppendedId(collection, id)
-            val isVideo = mimeType.startsWith("video")
-            Log.d("MediaGrid", "contentUri $contentUri")
-            mediaList.add(
-                StatusMedia(
-                    uri = contentUri,
-                    isVideo = isVideo,
-                    displayName = displayName,
-                    lastModified = lastModified
+            while (it.moveToNext()) {
+                val id = it.getLong(idColumn)
+                val displayName = it.getString(nameColumn)
+                val mimeType = it.getString(mimeTypeColumn) ?: ""
+                val lastModified = it.getLong(dateModifiedColumn) * 1000  // Convert to milliseconds
+
+                val contentUri = ContentUris.withAppendedId(collection, id)
+                val isVideo = mimeType.startsWith("video")
+                Log.d("SavedMedia", "Found saved file: $contentUri, type: $mimeType")
+                mediaList.add(
+                    StatusMedia(
+                        uri = contentUri,
+                        isVideo = isVideo,
+                        displayName = displayName,
+                        lastModified = lastModified
+                    )
                 )
-            )
+            }
         }
     }
 
-    return mediaList
+    // Sort by date modified descending
+    return mediaList.sortedByDescending { it.lastModified }
 }

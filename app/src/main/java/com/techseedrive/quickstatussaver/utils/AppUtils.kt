@@ -3,14 +3,19 @@
 package com.techseedrive.quickstatussaver.utils
 
 import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.app.RecoverableSecurityException
 import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.webkit.MimeTypeMap
 import android.widget.Toast
 import com.techseedrive.quickstatussaver.model.StatusMedia
@@ -76,26 +81,43 @@ object AppUtils {
         }
     }
 
-    fun deleteMedia(context: Context, media: StatusMedia) {
+    @SuppressLint("NewApi")
+    fun deleteMedia(context: Context, media: StatusMedia): IntentSender? {
         try {
             val uri = media.uri
             val contentResolver = context.contentResolver
 
-            // Works for media from MediaStore
+            Log.d("DeleteMedia", "Attempting to delete: $uri")
+            Log.d("DeleteMedia", "Android version: ${Build.VERSION.SDK_INT}")
+
+            // Try to delete the file
             val rowsDeleted = contentResolver.delete(uri, null, null)
 
             if (rowsDeleted > 0) {
+                Log.d("DeleteMedia", "Successfully deleted $rowsDeleted rows")
                 Toast.makeText(context, "Deleted successfully", Toast.LENGTH_SHORT).show()
+                return null
             } else {
-                Toast.makeText(context, "Failed to delete", Toast.LENGTH_SHORT).show()
+                Log.w("DeleteMedia", "Delete returned 0 rows - file may not be deletable or doesn't exist")
+                Toast.makeText(context, "Cannot delete this file", Toast.LENGTH_SHORT).show()
+                return null
             }
 
+        } catch (e: RecoverableSecurityException) {
+            // On Android 10+, we need user permission for files we don't own
+            Log.d("DeleteMedia", "RecoverableSecurityException caught - requesting user permission")
+            Toast.makeText(context, "Please grant permission to delete", Toast.LENGTH_SHORT).show()
+            return e.userAction.actionIntent.intentSender
+
         } catch (e: SecurityException) {
+            Log.e("DeleteMedia", "SecurityException: ${e.message}", e)
             Toast.makeText(context, "Permission denied to delete", Toast.LENGTH_SHORT).show()
-            e.printStackTrace()
+            return null
+
         } catch (e: Exception) {
-            Toast.makeText(context, "Error deleting file", Toast.LENGTH_SHORT).show()
-            e.printStackTrace()
+            Log.e("DeleteMedia", "Error deleting file: ${e.message}", e)
+            Toast.makeText(context, "Error deleting file: ${e.message}", Toast.LENGTH_SHORT).show()
+            return null
         }
     }
 
@@ -108,24 +130,27 @@ object AppUtils {
             val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
                 ?: "application/octet-stream"
             val appName = "QuickStatusSaver"
-            val relativePath = "Download/$appName"
 
-            // First ensure the directory exists
-            val downloadsDir =
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val appDir = File(downloadsDir, appName)
-            if (!appDir.exists()) {
-                appDir.mkdirs()
+            // Use proper collection based on media type for better delete support
+            val (collection, relativePath) = if (media.isVideo) {
+                Pair(
+                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    "${Environment.DIRECTORY_MOVIES}/$appName"
+                )
+            } else {
+                Pair(
+                    MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    "${Environment.DIRECTORY_PICTURES}/$appName"
+                )
             }
 
             val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, media.displayName)
-                put(MediaStore.Downloads.MIME_TYPE, mimeType)
-                put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
-                put(MediaStore.Downloads.IS_PENDING, 1)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, media.displayName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
 
-            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             val fileUri = context.contentResolver.insert(collection, values)
 
             fileUri?.let { uri ->
@@ -137,10 +162,11 @@ object AppUtils {
 
                 // Make file visible
                 values.clear()
-                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
                 context.contentResolver.update(uri, values, null, null)
 
-                Toast.makeText(context, "Saved to Downloads/$appName", Toast.LENGTH_LONG).show()
+                val folderName = if (media.isVideo) "Movies" else "Pictures"
+                Toast.makeText(context, "Saved to $folderName/$appName", Toast.LENGTH_LONG).show()
                 return true
             }
 

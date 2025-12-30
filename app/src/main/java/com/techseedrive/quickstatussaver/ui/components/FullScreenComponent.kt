@@ -1,7 +1,11 @@
 package com.techseedrive.quickstatussaver.ui.components
 
 import android.content.Context
+import android.content.IntentSender
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +49,32 @@ fun FullScreenComponent(
         displayName = displayName,
         lastModified = lastModified
     )
+
+    // Permission launcher for delete requests on Android 10+
+    val deletePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            // Permission granted, try deleting again
+            val intentSender = deleteMedia(context, media)
+            if (intentSender == null) {
+                // Successfully deleted, navigate back
+                navController.popBackStack()
+            }
+        }
+    }
+
+    val handleDelete: () -> Unit = {
+        val intentSender = deleteMedia(context, media)
+        if (intentSender != null) {
+            // Need user permission - show system dialog
+            val request = IntentSenderRequest.Builder(intentSender).build()
+            deletePermissionLauncher.launch(request)
+        } else {
+            // Successfully deleted or error, navigate back
+            navController.popBackStack()
+        }
+    }
 
     Box( modifier = Modifier
             .fillMaxSize()
@@ -110,11 +140,7 @@ fun FullScreenComponent(
                 Icon(Icons.Filled.Share, contentDescription = "Share", tint = Color.White)
             }
             if (fromSavedStatus) {
-                IconButton(onClick = {
-                    deleteMedia(context,media)
-                    navController.popBackStack()
-                }
-                ) {
+                IconButton(onClick = handleDelete) {
                     Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.Red)
                 }
             }
