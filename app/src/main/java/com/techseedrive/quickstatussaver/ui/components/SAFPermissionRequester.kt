@@ -11,7 +11,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.techseedrive.quickstatussaver.utils.AppUtils
 import com.techseedrive.quickstatussaver.utils.PreferencesUtils
@@ -22,6 +25,7 @@ fun SAFPermissionRequester(
     onFolderSelected: (Uri) -> Unit
 ) {
     val context = LocalContext.current
+    var showInstructionScreen by remember { mutableStateOf(false) }
 
     // Check if app is installed
     if (!AppUtils.checkAndHandleAppInstall(context, isBusiness)) {
@@ -56,7 +60,7 @@ fun SAFPermissionRequester(
         }
     }
 
-    // Rest of your existing SAF permission request code...
+    // Permission launcher
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -79,20 +83,29 @@ fun SAFPermissionRequester(
                 onFolderSelected(uri)
             }
         }
+        showInstructionScreen = false
     }
 
+    // Show instruction screen first, don't auto-launch
+    if (!showInstructionScreen) {
+        showInstructionScreen = true
+    }
 
-    val initialUri = getPreloadUri(context, isBusiness)
-
-    // Launch on first composition
-    LaunchedEffect(Unit) {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-            putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-        }
-        launcher.launch(intent)
+    if (showInstructionScreen) {
+        SAFPermissionInstructionScreen(
+            onGrantPermissionClick = {
+                val initialUri = getPreloadUri(context, isBusiness)
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                    )
+                }
+                launcher.launch(intent)
+            }
+        )
     }
 }
 

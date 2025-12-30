@@ -4,17 +4,23 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.res.Resources
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Button
@@ -31,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -186,6 +194,37 @@ fun PermissionsScreen(onPermissionGranted: () -> Unit) {
     var showPermissionDenied by remember { mutableStateOf(false) }
     var shouldShowRationale by remember { mutableStateOf(false) }
 
+    // Load permission step images from assets
+    val step2Image = remember {
+        try {
+            val inputStream = context.assets.open("permission-steps/step-2.jpeg")
+            BitmapFactory.decodeStream(inputStream)?.asImageBitmap()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    val step3Image = remember {
+        try {
+            val inputStream = context.assets.open("permission-steps/step-3.jpeg")
+            BitmapFactory.decodeStream(inputStream)?.asImageBitmap()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    val step4Image = remember {
+        try {
+            val inputStream = context.assets.open("permission-steps/step-4.jpeg")
+            BitmapFactory.decodeStream(inputStream)?.asImageBitmap()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     // Define the permissions based on Android version
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
@@ -222,30 +261,146 @@ fun PermissionsScreen(onPermissionGranted: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
+            .padding(16.dp)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = "Permissions", style = TextStyle(fontSize = 24.sp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Grant Folder Access",
+                style = TextStyle(fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Text(
                 text = if (showPermissionDenied && shouldShowRationale) {
-                    "Permissions are required to save statuses to your device. " +
-                            "Please grant them to continue."
+                    "Permissions are required to save statuses. Please follow the steps below:"
                 } else if (showPermissionDenied) {
                     "Permissions denied. Please go to app settings to grant them."
                 } else {
-                    "We need the following permissions to proceed:"
-                }
+                    "Follow these steps to grant access to WhatsApp statuses:"
+                },
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Step 1: Click on Grant Permissions (text only)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Step 1: Click on 'Grant Permissions' button below",
+                    style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(onClick = {
-                permissionsLauncher.launch(permissions)
-            }) {
+            // Step 2: Allow all
+            step2Image?.let { image ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Step 2: Click on 'Allow all' button",
+                        style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Image(
+                        bitmap = image,
+                        contentDescription = "Permission Step 2",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Step 3: Use this folder
+            step3Image?.let { image ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Step 3: Click on 'Use this folder' button",
+                        style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Image(
+                        bitmap = image,
+                        contentDescription = "Permission Step 3",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Step 4: Allow
+            step4Image?.let { image ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Step 4: Click on 'Allow' button",
+                        style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Image(
+                        bitmap = image,
+                        contentDescription = "Permission Step 4",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(12.dp)
+                            ),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+
+            Button(
+                onClick = {
+                    permissionsLauncher.launch(permissions)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
+            ) {
                 Text(text = if (showPermissionDenied) "Retry" else "Grant Permissions")
             }
 
@@ -257,11 +412,16 @@ fun PermissionsScreen(onPermissionGranted: () -> Unit) {
                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                         intent.data = Uri.fromParts("package", context.packageName, null)
                         context.startActivity(intent)
-                    }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp)
                 ) {
                     Text(text = "Open Settings")
                 }
             }
+
+            Spacer(modifier = Modifier.height(60.dp))
         }
     }
 }
