@@ -67,8 +67,17 @@ fun StatusTabContent(
     // Show grid immediately if data is available
     val currentMedia = allMedia
     if (currentMedia != null) {
+        // Filter media based on selected tab
+        val filteredMedia = remember(currentMedia, showVideos) {
+            if (showVideos) {
+                currentMedia.filter { it.isVideo }
+            } else {
+                currentMedia.filter { !it.isVideo }
+            }
+        }
+
         MediaGrid(
-            items = currentMedia,
+            items = filteredMedia,
             fromSavedStatus = false,
             navController = navController
         )

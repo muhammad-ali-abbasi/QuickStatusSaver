@@ -113,9 +113,19 @@ fun SAFPermissionRequester(
 
 // Helper function to get initial SAF Uri
 fun getPreloadUri(context: Context, isBusiness: Boolean): Uri {
-    val encodedPath = when {
-        isBusiness -> "Android%2Fmedia%2Fcom.whatsapp.w4b%2FWhatsApp%20Business%2FMedia"
-        else -> "Android%2Fmedia%2Fcom.whatsapp%2FWhatsApp%2FMedia"
+    // Android 11 (API 30) introduced scoped storage with new path structure
+    val encodedPath = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        // Android 11+ uses Android/media/com.whatsapp/ path
+        when {
+            isBusiness -> "Android%2Fmedia%2Fcom.whatsapp.w4b%2FWhatsApp%20Business%2FMedia"
+            else -> "Android%2Fmedia%2Fcom.whatsapp%2FWhatsApp%2FMedia"
+        }
+    } else {
+        // Android 10 and below use WhatsApp/ path in root of external storage
+        when {
+            isBusiness -> "WhatsApp%20Business%2FMedia"
+            else -> "WhatsApp%2FMedia"
+        }
     }
 
     return Uri.parse("content://com.android.externalstorage.documents/document/primary:$encodedPath")
