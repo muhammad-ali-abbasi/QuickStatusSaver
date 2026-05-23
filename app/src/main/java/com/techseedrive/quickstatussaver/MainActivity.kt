@@ -56,14 +56,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         PreferencesUtils.init(this)
         // Initialize Mobile Ads
-//        val backgroundScope = CoroutineScope(Dispatchers.IO)
-//        backgroundScope.launch {
-//            MobileAds.initialize(this@MainActivity) {}
-//
-//            runOnUiThread {
-//                loadInterstitialAd()
-//            }
-//        }
+        val backgroundScope = CoroutineScope(Dispatchers.IO)
+        backgroundScope.launch {
+            MobileAds.initialize(this@MainActivity) {}
+
+            runOnUiThread {
+                loadInterstitialAd()
+            }
+        }
 
         setContent {
             var isDarkTheme by rememberSaveable { mutableStateOf(false) }
@@ -77,32 +77,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-//    private fun loadInterstitialAd() {
-//        val adRequest = AdRequest.Builder().build()
-//
-//        InterstitialAd.load(
-//            this,
-//            "ca-app-pub-3131360788277380/5447251840", // <-- Test Interstitial Ad Unit ID
-//            adRequest,
-//            object : InterstitialAdLoadCallback() {
-//                override fun onAdLoaded(ad: InterstitialAd) {
-//                    Log.d("MainActivity", "Interstitial Ad Loaded")
-//                    interstitialAd = ad
-//                    showInterstitialAd()
-//                }
-//
-//                override fun onAdFailedToLoad(adError: LoadAdError) {
-//                    Log.d("MainActivity", "Failed to load interstitial ad: ${adError.message}")
-//                    interstitialAd = null
-//                }
-//            }
-//        )
-//    }
-//
-//    private fun showInterstitialAd() {
-//        interstitialAd?.show(this)
-//    }
-//}
+    private fun loadInterstitialAd() {
+        val adRequest = AdRequest.Builder().build()
+
+        InterstitialAd.load(
+            this,
+            "ca-app-pub-3131360788277380/1907286683", // Interstitial Ad Unit ID
+            adRequest,
+            object : InterstitialAdLoadCallback() {
+                override fun onAdLoaded(ad: InterstitialAd) {
+                    Log.d("MainActivity", "Interstitial Ad Loaded")
+                    interstitialAd = ad
+                    showInterstitialAd()
+                }
+
+                override fun onAdFailedToLoad(adError: LoadAdError) {
+                    Log.d("MainActivity", "Failed to load interstitial ad: ${adError.message}")
+                    interstitialAd = null
+                }
+            }
+        )
+    }
+
+    private fun showInterstitialAd() {
+        interstitialAd?.show(this)
+    }
 
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -246,7 +245,7 @@ class MainActivity : ComponentActivity() {
                             }
                             // Ad at bottom with clear separation
                             Spacer(modifier = Modifier.height(1.dp))
-                            BannerAd(adUnitId = "ca-app-pub-3131360788277380/5382854428")
+                            BannerAd(adUnitId = "ca-app-pub-3131360788277380/8355172745")
                         }
                     }
                 }
