@@ -178,4 +178,93 @@ object AppUtils {
             false
         }
     }
+
+    /**
+     * Saves a single media item silently (no Toast). Used internally by [saveMultipleMedia].
+     * Returns true if the file was saved successfully.
+     */
+    @SuppressLint("NewApi")
+    fun saveMediaSilent(context: Context, media: StatusMedia): Boolean {
+        return try {
+            val extension = media.displayName.substringAfterLast('.', "").lowercase()
+            val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+                ?: "application/octet-stream"
+            val appName = "QuickStatusSaver"
+
+            val (collection, relativePath) = if (media.isVideo) {
+                Pair(
+                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    "${Environment.DIRECTORY_MOVIES}/$appName"
+                )
+            } else {
+                Pair(
+                    MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    "${Environment.DIRECTORY_PICTURES}/$appName"
+                )
+            }
+
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, media.displayName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+
+            val fileUri = context.contentResolver.insert(collection, values)
+            fileUri?.let { uri ->
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    context.contentResolver.openInputStream(media.uri)?.use { input ->
+                        input.copyTo(out)
+                    }
+                }
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                context.contentResolver.update(uri, values, null, null)
+                return true
+            }
+            false
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * Saves a list of media items silently (runs on caller's thread — use IO dispatcher).
+     * Returns the number of items successfully saved. A single summary Toast should be
+     * shown by the caller on the main thread.
+     */
+    fun saveMultipleMedia(context: Context, mediaList: List<StatusMedia>): Int {
+        var savedCount = 0
+        for (media in mediaList) {
+            if (saveMediaSilent(context, media)) savedCount++
+        }
+        return savedCount
+    }
+
+    /**
+     * Deletes a single media item silently (no Toast). Used internally by [deleteMultipleMedia].
+     * Returns true if the file was deleted successfully.
+     */
+    fun deleteMediaSilent(context: Context, media: StatusMedia): Boolean {
+        return try {
+            val rowsDeleted = context.contentResolver.delete(media.uri, null, null)
+            rowsDeleted > 0
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * Deletes a list of media items silently (runs on caller's thread — use IO dispatcher).
+     * Returns the number of items successfully deleted.
+     */
+    fun deleteMultipleMedia(context: Context, mediaList: List<StatusMedia>): Int {
+        var deletedCount = 0
+        for (media in mediaList) {
+            if (deleteMediaSilent(context, media)) deletedCount++
+        }
+        return deletedCount
+    }
 }

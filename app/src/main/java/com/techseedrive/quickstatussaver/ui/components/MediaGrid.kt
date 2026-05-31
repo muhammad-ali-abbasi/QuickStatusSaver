@@ -2,26 +2,28 @@ package com.techseedrive.quickstatussaver.ui.components
 
 import android.content.Context
 import android.net.Uri
+import androidx.compose.animation.core.AnimationState
+import androidx.compose.animation.core.DecayAnimationSpec
+import androidx.compose.animation.core.animateDecay
+import androidx.compose.animation.core.exponentialDecay
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollScope
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.LocalOverscrollConfiguration
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.animation.core.AnimationState
-import androidx.compose.animation.core.DecayAnimationSpec
-import androidx.compose.animation.core.animateDecay
-import androidx.compose.animation.core.exponentialDecay
-import kotlin.math.abs
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,16 +34,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
-import com.techseedrive.quickstatussaver.model.StatusMedia
-import androidx.compose.runtime.CompositionLocalProvider
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.request.CachePolicy
 import coil.decode.VideoFrameDecoder
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import com.techseedrive.quickstatussaver.model.StatusMedia
+import kotlin.math.abs
 
 /**
- * Custom FlingBehavior for smooth, controlled scrolling
- * Simplified for better performance
+ * Custom FlingBehavior for smooth, controlled scrolling.
  */
 class SmoothFlingBehavior(
     private val decayAnimationSpec: DecayAnimationSpec<Float>,
@@ -49,7 +50,6 @@ class SmoothFlingBehavior(
 ) : FlingBehavior {
     override suspend fun ScrollScope.performFling(initialVelocity: Float): Float {
         val reducedVelocity = initialVelocity * velocityMultiplier
-
         var lastValue = 0f
         AnimationState(
             initialValue = 0f,
@@ -67,10 +67,10 @@ class SmoothFlingBehavior(
 @Composable
 fun rememberSmoothFlingBehavior(): FlingBehavior {
     val decaySpec = exponentialDecay<Float>(
-        frictionMultiplier = 0.65f, // Optimized for smooth, natural feel
-        absVelocityThreshold = 0.3f // Smoother stop
+        frictionMultiplier = 0.65f,
+        absVelocityThreshold = 0.3f
     )
-    return remember { SmoothFlingBehavior(decaySpec, 0.65f) } // Slightly faster
+    return remember { SmoothFlingBehavior(decaySpec, 0.65f) }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -79,20 +79,28 @@ fun MediaGrid(
     items: List<StatusMedia>,
     fromSavedStatus: Boolean = false,
     navController: NavHostController,
-    deleteItem: ((StatusMedia) -> Unit)? = null
+    deleteItem: ((StatusMedia) -> Unit)? = null,
+    // ── Multi-select state (hoisted from parent) ──
+    selectedItems: Set<Uri> = emptySet(),
+    isSelectionMode: Boolean = false,
+    onToggleSelection: (StatusMedia) -> Unit = {},
+    onSelectionModeChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val gridState = rememberLazyGridState()
     val smoothFlingBehavior = rememberSmoothFlingBehavior()
-
-    // Detect if user is actively scrolling - pause loading during fast scroll
     val isScrolling = gridState.isScrollInProgress
 
-    // Disable overscroll bounce effect for smooth, controlled scrolling
     CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
-            contentPadding = PaddingValues(2.dp),
+            // Add bottom padding so the last row is never hidden behind the action bar
+            contentPadding = PaddingValues(
+                start = 2.dp,
+                top = 2.dp,
+                end = 2.dp,
+                bottom = if (isSelectionMode) 80.dp else 2.dp
+            ),
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(3.dp),
             horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -110,13 +118,18 @@ fun MediaGrid(
                     fromSavedStatus = fromSavedStatus,
                     deleteItem = deleteItem,
                     isScrolling = isScrolling,
-                    allItems = items
+                    allItems = items,
+                    isSelected = selectedItems.contains(media.uri),
+                    isSelectionMode = isSelectionMode,
+                    onToggleSelection = onToggleSelection,
+                    onSelectionModeChange = onSelectionModeChange
                 )
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaItemCard(
     media: StatusMedia,
@@ -125,14 +138,17 @@ fun MediaItemCard(
     fromSavedStatus: Boolean,
     deleteItem: ((StatusMedia) -> Unit)?,
     isScrolling: Boolean = false,
-    allItems: List<StatusMedia> = emptyList()
+    allItems: List<StatusMedia> = emptyList(),
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
+    onToggleSelection: (StatusMedia) -> Unit = {},
+    onSelectionModeChange: (Boolean) -> Unit = {}
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val onClick = remember(media.uri, fromSavedStatus, allItems) {
-        {
-            // Cache the media list for fullscreen navigation
-            FullScreenMediaCache.setMediaList(allItems)
 
+    val openFullscreen = remember(media.uri, fromSavedStatus, allItems) {
+        {
+            FullScreenMediaCache.setMediaList(allItems)
             val encodedUri = Uri.encode(media.uri.toString())
             navController.navigate(
                 "fullScreen/$encodedUri/${media.isVideo}/${media.displayName}/${media.lastModified}/$fromSavedStatus"
@@ -145,19 +161,31 @@ fun MediaItemCard(
             .fillMaxWidth()
             .height(160.dp)
             .clip(RoundedCornerShape(4.dp))
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = {
+                    if (isSelectionMode) {
+                        onToggleSelection(media)
+                    } else {
+                        openFullscreen()
+                    }
+                },
+                onLongClick = {
+                    // Enter selection mode on long press and select this item
+                    if (!isSelectionMode) {
+                        onSelectionModeChange(true)
+                    }
+                    onToggleSelection(media)
+                }
             )
     ) {
-        // Use Coil AsyncImage for efficient image/video loading
+        // ── Thumbnail (image or video frame) ──
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(media.uri)
                 .apply {
                     if (media.isVideo) {
-                        // Use VideoFrameDecoder for video thumbnails
                         decoderFactory { result, options, _ ->
                             VideoFrameDecoder(result.source, options)
                         }
@@ -175,8 +203,8 @@ fun MediaItemCard(
             error = null
         )
 
-        // Show play icon overlay for videos
-        if (media.isVideo) {
+        // ── Video play icon (hidden during selection mode) ──
+        if (media.isVideo && !isSelectionMode) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -189,6 +217,44 @@ fun MediaItemCard(
                 )
             }
         }
+
+        // ── Selection overlay ──
+        if (isSelectionMode || isSelected) {
+            // Dark tint when selected
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.35f))
+                )
+            }
+
+            // Checkbox icon in the top-right corner
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopEnd
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(6.dp)
+                        .size(22.dp)
+                        .then(
+                            // White circle backing for the filled check icon so it pops on any BG
+                            if (isSelected) Modifier.background(Color.White, CircleShape)
+                            else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isSelected) Icons.Default.CheckCircle
+                        else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = if (isSelected) "Selected" else "Not selected",
+                        tint = if (isSelected) MaterialTheme.colorScheme.primary
+                        else Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
     }
 }
-

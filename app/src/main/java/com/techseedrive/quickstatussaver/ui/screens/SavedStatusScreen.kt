@@ -1,11 +1,17 @@
 package com.techseedrive.quickstatussaver.ui.screens
 
-import android.annotation.SuppressLint
-import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
+import android.widget.Toast
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -17,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,38 +32,40 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.techseedrive.quickstatussaver.model.StatusMedia
 import com.techseedrive.quickstatussaver.ui.components.MediaGrid
+import com.techseedrive.quickstatussaver.ui.components.MultiSelectActionBar
+import com.techseedrive.quickstatussaver.utils.AppUtils
 import com.techseedrive.quickstatussaver.utils.ThumbnailPreloader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // Cache for saved media that survives navigation
 private object SavedMediaCache {
-    private var cachedData: List<StatusMedia>? = null
-    private var isPreloaded = false
+    private var cache: List<StatusMedia>? = null
 
-    fun get(): List<StatusMedia>? = cachedData
+    fun get(): List<StatusMedia>? = cache
     fun put(data: List<StatusMedia>) {
-        cachedData = data
-    }
-    fun isPreloaded(): Boolean = isPreloaded
-    fun setPreloaded() {
-        isPreloaded = true
+        cache = data
     }
     fun clear() {
-        cachedData = null
-        isPreloaded = false
+        cache = null
     }
 }
 
 @Composable
 fun SavedStatusScreen(navController: NavHostController) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    // Add refresh trigger
     var refreshTrigger by remember { mutableStateOf(0) }
-
     val mediaList = remember { mutableStateListOf<StatusMedia>() }
     var hasLoaded by remember { mutableStateOf(false) }
+
+    // ── Multi-select state ────────────────────────────────────────────────────
+    var selectedItems by remember { mutableStateOf<Set<Uri>>(emptySet()) }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
+    // ───────────────────────────────────────────────────────────────
 
     // Clear cache when screen is first entered to ensure fresh data
     DisposableEffect(Unit) {
@@ -66,41 +75,100 @@ fun SavedStatusScreen(navController: NavHostController) {
     }
 
     LaunchedEffect(refreshTrigger) {
-        // Always reload from MediaStore to get latest saved files
-        withContext(Dispatchers.IO) {
-            val loaded = getSavedMedia(context)
+        val cached = SavedMediaCache.get()
+        if (cached != null) {
+            mediaList.clear()
+            mediaList.addAll(cached)
+            hasLoaded = true
+            return@LaunchedEffect
+        }
 
+        withContext(Dispatchers.IO) {
+            val list = querySavedMedia(context)
             withContext(Dispatchers.Main) {
                 mediaList.clear()
-                mediaList.addAll(loaded)
-                SavedMediaCache.put(loaded)
+                mediaList.addAll(list)
+                SavedMediaCache.put(list)
                 hasLoaded = true
             }
-
-            // Preload thumbnails in background
-            if (!SavedMediaCache.isPreloaded() || refreshTrigger > 0) {
-                ThumbnailPreloader.preload(context, loaded)
-                withContext(Dispatchers.Main) {
-                    SavedMediaCache.setPreloaded()
-                }
-            }
+            // Preload thumbnails
+            ThumbnailPreloader.preload(context, list)
         }
     }
 
     // Show grid immediately if data is loaded
     if (hasLoaded) {
-        MediaGrid(
-            items = mediaList,
-            fromSavedStatus = true,
-            navController = navController,
-            deleteItem = { media ->
-                // Remove from UI immediately
-                mediaList.remove(media)
-                // Clear cache and trigger refresh
-                SavedMediaCache.clear()
-                refreshTrigger++
+        Box(modifier = Modifier.fillMaxSize()) {
+            MediaGrid(
+                items = mediaList,
+                fromSavedStatus = true,
+                navController = navController,
+                deleteItem = { media ->
+                    mediaList.remove(media)
+                    SavedMediaCache.clear()
+                    refreshTrigger++
+                },
+                selectedItems = selectedItems,
+                isSelectionMode = isSelectionMode,
+                onToggleSelection = { media ->
+                    selectedItems = if (selectedItems.contains(media.uri)) {
+                        val updated = selectedItems - media.uri
+                        if (updated.isEmpty()) isSelectionMode = false
+                        updated
+                    } else {
+                        selectedItems + media.uri
+                    }
+                },
+                onSelectionModeChange = { isSelectionMode = it }
+            )
+
+            // ── Multi-select action bar (slides up from bottom) ──────────────
+            AnimatedVisibility(
+                visible = isSelectionMode,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+            ) {
+                MultiSelectActionBar(
+                    selectedCount = selectedItems.size,
+                    totalCount = mediaList.size,
+                    isProcessing = isSaving,
+                    actionLabel = "Delete",
+                    actionIcon = Icons.Default.Delete,
+                    onSelectAll = {
+                        selectedItems = if (selectedItems.size == mediaList.size) {
+                            emptySet()
+                        } else {
+                            mediaList.map { it.uri }.toSet()
+                        }
+                    },
+                    onConfirmAction = {
+                        val toDelete = mediaList.filter { selectedItems.contains(it.uri) }
+                        scope.launch {
+                            isSaving = true
+                            val deletedCount = withContext(Dispatchers.IO) {
+                                AppUtils.deleteMultipleMedia(context, toDelete)
+                            }
+                            Toast.makeText(
+                                context,
+                                "Deleted $deletedCount of ${toDelete.size} items",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            isSaving = false
+                            selectedItems = emptySet()
+                            isSelectionMode = false
+                            // Refresh list so deleted items disappear
+                            SavedMediaCache.clear()
+                            refreshTrigger++
+                        }
+                    },
+                    onCancel = {
+                        selectedItems = emptySet()
+                        isSelectionMode = false
+                    }
+                )
             }
-        )
+        }
     } else {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -108,67 +176,49 @@ fun SavedStatusScreen(navController: NavHostController) {
     }
 }
 
+private fun querySavedMedia(context: Context): List<StatusMedia> {
+    val list = mutableListOf<StatusMedia>()
+    val appName = "QuickStatusSaver"
 
-@SuppressLint("InlinedApi")
-fun getSavedMedia(context: Context): List<StatusMedia> {
-    val mediaList = mutableListOf<StatusMedia>()
-
-    // Query both Pictures and Movies folders for QuickStatusSaver files
-    val collections: List<Uri> = listOf(
+    val collections = listOf(
         MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
         MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
     )
 
-    val projection = arrayOf(
-        MediaStore.MediaColumns._ID,
-        MediaStore.MediaColumns.DISPLAY_NAME,
-        MediaStore.MediaColumns.MIME_TYPE,
-        MediaStore.MediaColumns.DATE_MODIFIED,
-        MediaStore.MediaColumns.RELATIVE_PATH
-    )
+    collections.forEach { collection ->
+        val projection = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.DATE_MODIFIED,
+            MediaStore.MediaColumns.RELATIVE_PATH
+        )
 
-    val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? OR ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
-    val selectionArgs = arrayOf(
-        "%Pictures/QuickStatusSaver%",
-        "%Movies/QuickStatusSaver%"
-    )
+        // Only query files in our app's specific folders
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        val selectionArgs = arrayOf("%/$appName%")
 
-    for (collection in collections) {
-        val cursor = context.contentResolver.query(
+        context.contentResolver.query(
             collection,
             projection,
             selection,
             selectionArgs,
             "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
-        )
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
 
-        cursor?.use {
-            val idColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-            val nameColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-            val mimeTypeColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-            val dateModifiedColumn = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idColumn)
+                val name = cursor.getString(nameColumn)
+                val date = cursor.getLong(dateColumn)
+                val uri = Uri.withAppendedPath(collection, id.toString())
+                val isVideo = collection == MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
-            while (it.moveToNext()) {
-                val id = it.getLong(idColumn)
-                val displayName = it.getString(nameColumn)
-                val mimeType = it.getString(mimeTypeColumn) ?: ""
-                val lastModified = it.getLong(dateModifiedColumn) * 1000  // Convert to milliseconds
-
-                val contentUri = ContentUris.withAppendedId(collection, id)
-                val isVideo = mimeType.startsWith("video")
-                Log.d("SavedMedia", "Found saved file: $contentUri, type: $mimeType")
-                mediaList.add(
-                    StatusMedia(
-                        uri = contentUri,
-                        isVideo = isVideo,
-                        displayName = displayName,
-                        lastModified = lastModified
-                    )
-                )
+                list.add(StatusMedia(uri, isVideo, name, date))
             }
         }
     }
 
-    // Sort by date modified descending
-    return mediaList.sortedByDescending { it.lastModified }
+    return list.sortedByDescending { it.lastModified }
 }
