@@ -67,6 +67,11 @@ fun SavedStatusScreen(navController: NavHostController) {
     var isSaving by remember { mutableStateOf(false) }
     // ───────────────────────────────────────────────────────────────
 
+    // Sync with global state to disable drawer gestures
+    LaunchedEffect(isSelectionMode) {
+        com.techseedrive.quickstatussaver.GlobalUiState.isSelectionMode = isSelectionMode
+    }
+
     // Clear cache when screen is first entered to ensure fresh data
     DisposableEffect(Unit) {
         // Clear cache on screen entry to get fresh data after saves from other screens
@@ -119,7 +124,10 @@ fun SavedStatusScreen(navController: NavHostController) {
                         selectedItems + media.uri
                     }
                 },
-                onSelectionModeChange = { isSelectionMode = it }
+                onSelectionModeChange = { isSelectionMode = it },
+                onBulkSelect = { uris ->
+                    selectedItems = selectedItems + uris
+                }
             )
 
             // ── Multi-select action bar (slides up from bottom) ──────────────

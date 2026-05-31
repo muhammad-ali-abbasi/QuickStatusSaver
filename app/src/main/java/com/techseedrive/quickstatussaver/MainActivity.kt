@@ -49,6 +49,14 @@ import com.google.android.gms.ads.rewardedinterstitial.RewardedInterstitialAdLoa
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 
+/**
+ * Global state to track UI changes that affect the whole app, 
+ * like disabling drawer gestures during selection mode.
+ */
+object GlobalUiState {
+    var isSelectionMode by mutableStateOf(false)
+}
+
 class MainActivity : ComponentActivity() {
     private var interstitialAd: InterstitialAd? = null
 
@@ -220,7 +228,8 @@ class MainActivity : ComponentActivity() {
     ) {
         ModalNavigationDrawer(
             drawerState = drawerState,
-            drawerContent = drawerContent
+            drawerContent = drawerContent,
+            gesturesEnabled = !GlobalUiState.isSelectionMode // Disable swipe to open drawer during selection
         ) {
             Scaffold(
                 topBar = {

@@ -53,6 +53,11 @@ fun StatusTabContent(
     var isSelectionMode by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
 
+    // Sync with global state to disable drawer gestures
+    LaunchedEffect(isSelectionMode) {
+        com.techseedrive.quickstatussaver.GlobalUiState.isSelectionMode = isSelectionMode
+    }
+
     // Reset selection whenever the user switches between Images / Videos tabs
     LaunchedEffect(showVideos) {
         selectedItems = emptySet()
@@ -107,7 +112,10 @@ fun StatusTabContent(
                         selectedItems + media.uri
                     }
                 },
-                onSelectionModeChange = { isSelectionMode = it }
+                onSelectionModeChange = { isSelectionMode = it },
+                onBulkSelect = { uris ->
+                    selectedItems = selectedItems + uris
+                }
             )
 
             // ── Multi-select action bar (slides up from bottom) ─────────────
