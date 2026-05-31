@@ -2,18 +2,11 @@ package com.techseedrive.quickstatussaver.ui.components
 
 import android.content.Context
 import android.net.Uri
-import androidx.compose.animation.core.AnimationState
-import androidx.compose.animation.core.DecayAnimationSpec
-import androidx.compose.animation.core.animateDecay
-import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.FlingBehavior
-import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -32,55 +25,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.toIntRect
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Precision
 import com.techseedrive.quickstatussaver.model.StatusMedia
 import kotlinx.coroutines.delay
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Custom FlingBehavior for smooth, controlled scrolling.
+ * Performance-Optimized MediaGrid.
+ * We removed all custom fling restrictions to match Native Gallery velocity.
+ * Image loading is optimized with lower precision and smaller dimensions for the grid.
  */
-class SmoothFlingBehavior(
-    private val decayAnimationSpec: DecayAnimationSpec<Float>,
-    private val velocityMultiplier: Float = 0.6f
-) : FlingBehavior {
-    override suspend fun ScrollScope.performFling(initialVelocity: Float): Float {
-        val reducedVelocity = initialVelocity * velocityMultiplier
-        var lastValue = 0f
-        AnimationState(
-            initialValue = 0f,
-            initialVelocity = reducedVelocity,
-        ).animateDecay(decayAnimationSpec) {
-            val delta = value - lastValue
-            val consumed = scrollBy(delta)
-            lastValue = value
-            if (abs(delta - consumed) > 1.0f) this.cancelAnimation()
-        }
-        return 0f
-    }
-}
-
-@Composable
-fun rememberSmoothFlingBehavior(): FlingBehavior {
-    val decaySpec = exponentialDecay<Float>(
-        frictionMultiplier = 0.65f,
-        absVelocityThreshold = 0.3f
-    )
-    return remember { SmoothFlingBehavior(decaySpec, 0.65f) }
-}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -97,10 +64,9 @@ fun MediaGrid(
 ) {
     val context = LocalContext.current
     val gridState = rememberLazyGridState()
-    val smoothFlingBehavior = rememberSmoothFlingBehavior()
     val density = LocalDensity.current
 
-    // ── Drag Selection state ──────────────────────────────────────────────
+    // ── Drag Selection state ──
     var dragStartItemIndex by remember { mutableStateOf<Int?>(null) }
     var dragCurrentItemIndex by remember { mutableStateOf<Int?>(null) }
     var dragOffset by remember { mutableStateOf<Offset?>(null) }
@@ -126,39 +92,30 @@ fun MediaGrid(
         return item?.index
     }
 
-    // ── Auto-scroll logic ──────────────────────────────────────────────────
+    // Auto-scroll logic during drag
     LaunchedEffect(dragOffset, containerHeight) {
         val offset = dragOffset ?: return@LaunchedEffect
         if (containerHeight <= 0) return@LaunchedEffect
-        
         val threshold = with(density) { 60.dp.toPx() }
-        
-        // Check if finger is near top or bottom edges
         val scrollDelta = when {
-            offset.y < threshold -> -20f * (1f - (offset.y / threshold).coerceIn(0f, 1f))
-            offset.y > containerHeight - threshold -> 25f * (1f - ((containerHeight - offset.y) / threshold).coerceIn(0f, 1f))
+            offset.y < threshold -> -25f * (1f - (offset.y / threshold).coerceIn(0f, 1f))
+            offset.y > containerHeight - threshold -> 30f * (1f - ((containerHeight - offset.y) / threshold).coerceIn(0f, 1f))
             else -> 0f
         }
-
         if (scrollDelta != 0f) {
             while (dragOffset != null) {
-                gridState.scroll {
-                    scrollBy(scrollDelta)
-                }
-                
-                // Re-calculate the current item under the finger after the scroll
+                gridState.scroll { scrollBy(scrollDelta) }
                 dragOffset?.let { currentOffset ->
                     val newIndex = getItemIndexAtOffset(currentOffset)
                     if (newIndex != null && newIndex != dragCurrentItemIndex) {
                         dragCurrentItemIndex = newIndex
                     }
                 }
-                delay(16) // ~60fps
+                delay(16)
             }
         }
     }
 
-    // Update selection list based on index range
     LaunchedEffect(dragStartItemIndex, dragCurrentItemIndex) {
         val start = dragStartItemIndex
         val end = dragCurrentItemIndex
@@ -234,22 +191,21 @@ fun MediaGrid(
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 contentPadding = PaddingValues(
-                    start = 2.dp,
-                    top = 2.dp,
-                    end = 2.dp,
-                    bottom = if (isSelectionMode) 80.dp else 2.dp
+                    start = 1.dp,
+                    top = 1.dp,
+                    end = 1.dp,
+                    bottom = if (isSelectionMode) 80.dp else 1.dp
                 ),
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                state = gridState,
-                flingBehavior = smoothFlingBehavior,
-                userScrollEnabled = dragStartItemIndex == null
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                state = gridState
+                // Removed SmoothFlingBehavior completely to restore Native speed
             ) {
                 itemsIndexed(
                     items = items,
                     key = { _, item -> item.uri.toString() }
-                ) { index, media ->
+                ) { _, media ->
                     MediaItemCard(
                         media = media,
                         context = context,
@@ -271,9 +227,9 @@ fun MediaItemCard(
 ) {
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .height(160.dp)
-            .clip(RoundedCornerShape(4.dp))
+            .aspectRatio(1f) // Ensures items have a consistent size for better scroll performance
+            .clip(RoundedCornerShape(2.dp))
+            .background(Color.LightGray.copy(alpha = 0.1f)) // Placeholder color
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
@@ -285,14 +241,16 @@ fun MediaItemCard(
                         }
                     }
                 }
-                .crossfade(150)
-                .memoryCachePolicy(CachePolicy.ENABLED)
+                .size(250) // Reduced resolution for faster loading in 3-column grid
+                .precision(Precision.INEXACT)
+                .crossfade(true)
                 .diskCachePolicy(CachePolicy.ENABLED)
-                .size(400, 400)
+                .memoryCachePolicy(CachePolicy.ENABLED)
                 .build(),
-            contentDescription = media.displayName,
+            contentDescription = null,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Crop,
+            filterQuality = FilterQuality.Low
         )
 
         if (media.isVideo && !isSelectionMode) {
@@ -302,9 +260,9 @@ fun MediaItemCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Video",
-                    tint = Color.White,
-                    modifier = Modifier.size(48.dp)
+                    tint = Color.White.copy(alpha = 0.8f),
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp)
                 )
             }
         }
@@ -324,20 +282,20 @@ fun MediaItemCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .padding(6.dp)
-                        .size(22.dp)
+                        .padding(4.dp)
+                        .size(20.dp)
                         .then(
                             if (isSelected) Modifier.background(Color.White, CircleShape)
-                            else Modifier
+                            else Modifier.background(Color.Black.copy(alpha = 0.2f), CircleShape)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (isSelected) Icons.Default.CheckCircle
                         else Icons.Default.RadioButtonUnchecked,
-                        contentDescription = if (isSelected) "Selected" else "Not selected",
-                        tint = if (isSelected) MaterialTheme.colorScheme.primary
-                        else Color.White.copy(alpha = 0.9f),
+                        contentDescription = null,
+                        tint = if (isSelected) MaterialTheme.colorScheme.primary 
+                              else Color.White.copy(alpha = 0.7f),
                         modifier = Modifier.fillMaxSize()
                     )
                 }
