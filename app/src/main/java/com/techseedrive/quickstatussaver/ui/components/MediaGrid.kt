@@ -9,8 +9,6 @@ import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -36,7 +34,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toIntRect
 import androidx.navigation.NavHostController
@@ -45,6 +45,7 @@ import coil.decode.VideoFrameDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.techseedrive.quickstatussaver.model.StatusMedia
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -97,11 +98,14 @@ fun MediaGrid(
     val context = LocalContext.current
     val gridState = rememberLazyGridState()
     val smoothFlingBehavior = rememberSmoothFlingBehavior()
+    val density = LocalDensity.current
 
-    // ── Drag Selection State ──────────────────────────────────────────────
+    // ── Drag Selection state ──────────────────────────────────────────────
     var dragStartItemIndex by remember { mutableStateOf<Int?>(null) }
     var dragCurrentItemIndex by remember { mutableStateOf<Int?>(null) }
-    
+    var dragOffset by remember { mutableStateOf<Offset?>(null) }
+    var containerHeight by remember { mutableStateOf(0f) }
+
     val currentIsSelectionMode by rememberUpdatedState(isSelectionMode)
     val currentOnSelectionModeChange by rememberUpdatedState(onSelectionModeChange)
 
@@ -122,6 +126,39 @@ fun MediaGrid(
         return item?.index
     }
 
+    // ── Auto-scroll logic ──────────────────────────────────────────────────
+    LaunchedEffect(dragOffset, containerHeight) {
+        val offset = dragOffset ?: return@LaunchedEffect
+        if (containerHeight <= 0) return@LaunchedEffect
+        
+        val threshold = with(density) { 60.dp.toPx() }
+        
+        // Check if finger is near top or bottom edges
+        val scrollDelta = when {
+            offset.y < threshold -> -20f * (1f - (offset.y / threshold).coerceIn(0f, 1f))
+            offset.y > containerHeight - threshold -> 25f * (1f - ((containerHeight - offset.y) / threshold).coerceIn(0f, 1f))
+            else -> 0f
+        }
+
+        if (scrollDelta != 0f) {
+            while (dragOffset != null) {
+                gridState.scroll {
+                    scrollBy(scrollDelta)
+                }
+                
+                // Re-calculate the current item under the finger after the scroll
+                dragOffset?.let { currentOffset ->
+                    val newIndex = getItemIndexAtOffset(currentOffset)
+                    if (newIndex != null && newIndex != dragCurrentItemIndex) {
+                        dragCurrentItemIndex = newIndex
+                    }
+                }
+                delay(16) // ~60fps
+            }
+        }
+    }
+
+    // Update selection list based on index range
     LaunchedEffect(dragStartItemIndex, dragCurrentItemIndex) {
         val start = dragStartItemIndex
         val end = dragCurrentItemIndex
@@ -140,8 +177,7 @@ fun MediaGrid(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // Use a single pointerInput to handle both Taps and LongPress + Drag
-                // This prevents child clickables from interfering with selection logic
+                .onGloballyPositioned { containerHeight = it.size.height.toFloat() }
                 .pointerInput(items) {
                     detectTapGestures(
                         onTap = { offset ->
@@ -151,7 +187,6 @@ fun MediaGrid(
                                 if (currentIsSelectionMode) {
                                     onToggleSelection(media)
                                 } else {
-                                    // Open Full Screen
                                     FullScreenMediaCache.setMediaList(items)
                                     val encodedUri = Uri.encode(media.uri.toString())
                                     navController.navigate(
@@ -172,11 +207,12 @@ fun MediaGrid(
                                 }
                                 dragStartItemIndex = index
                                 dragCurrentItemIndex = index
-                                // Toggle the first item
+                                dragOffset = offset
                                 onToggleSelection(items[index])
                             }
                         },
                         onDrag = { change, _ ->
+                            dragOffset = change.position
                             val index = getItemIndexAtOffset(change.position)
                             if (index != null && index != dragCurrentItemIndex) {
                                 dragCurrentItemIndex = index
@@ -185,10 +221,12 @@ fun MediaGrid(
                         onDragEnd = {
                             dragStartItemIndex = null
                             dragCurrentItemIndex = null
+                            dragOffset = null
                         },
                         onDragCancel = {
                             dragStartItemIndex = null
                             dragCurrentItemIndex = null
+                            dragOffset = null
                         }
                     )
                 }
@@ -236,7 +274,6 @@ fun MediaItemCard(
             .fillMaxWidth()
             .height(160.dp)
             .clip(RoundedCornerShape(4.dp))
-            // No clickables here - all handled by the parent grid for perfect sync
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
